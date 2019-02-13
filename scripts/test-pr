@@ -8,6 +8,13 @@
 
 set -ex
 
+function trap_add_exit() {
+  local new_trap_cmd="$1"
+  local old_trap_cmd="$(trap -p EXIT | awk -F"'" '{ print $2 }')"
+  [[ -z "$old_trap_cmd" ]] && old_trap_cmd="date"
+  trap "${old_trap_cmd}; ${new_trap_cmd}" EXIT
+}
+
 for f in "$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)"/lib/*; do
   . "$f"
 done
