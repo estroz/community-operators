@@ -8,52 +8,41 @@
 
 set -ex
 
-function trap_add_exit() {
-  local new_trap_cmd="$1"
-  local old_trap_cmd="$(trap -p EXIT | awk -F"'" '{ print $2 }')"
-  [[ -z "$old_trap_cmd" ]] && old_trap_cmd="date"
-  trap "${old_trap_cmd}; ${new_trap_cmd}" EXIT
-}
-
-for f in "$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)"/lib/*; do
+for f in "$(cd "$(dirname ${BASH_SOURCE[0]})/.." && pwd)"/lib/*; do
   . "$f"
 done
 
-# jq and yq are required.
-if ! command -v jq > /dev/null; then
-  echo "jq is required but not installed"
-  exit 1
-fi
-if ! command -v yq > /dev/null; then
-  echo "yq is required but not installed"
-  exit 1
-fi
-
 # Relative path to the dir containing operator manifests. Usually something
 # like "community-operators/automation-broker".
-REL_OP_PATH="$1"
+[[ -z "$REL_OP_PATH" ]] && REL_OP_PATH="$1"
 if [[ ! -d "$REL_OP_PATH" ]]; then
-  printf "Relative path to operator package '%s' does not exist.\n" "$REL_OP_PATH"
+  echo "Relative path to operator package '$REL_OP_PATH' does not exist."
   exit 1
 fi
 # This script assumes versions are written as "v0.0.1" in file names and
-# fields, but OP_VER is expected to not include a "v" prefix, ex. "0.0.1"
-OP_VER="$2"
+# fields, but OP_VER is expected to not include a "v" prefix, ex. "0.0.1".
+[[ -z "$OP_VER" ]] && OP_VER="$2"
 if [[ -z "$OP_VER" || ! "$OP_VER" =~ ^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$ ]]; then
-  printf "Operator version '%s' not valid.\n" "$OP_VER"
+  echo "Operator version '$OP_VER' not valid."
   exit 1
 fi
-# Set $3 to any string to create a "./tmp.*" dir locally. Otherwise a dir
-# "/tmp/tmp.*" is created. Useful for testing this script locally.
-TMP=
-if [[ -n "$3" ]]; then
-  TMP="$(readlink -m $(mktemp -d -p .))"
-else
-  TMP="$(mktemp -d)"
+
+if [[ -z "$CLUSTER_NAME" ]]; then
+  echo "CLUSTER_NAME not set."
+  exit 1
 fi
+[[ -z "$KUBECONFIG" ]] && KUBECONFIG="$(pwd)/${CLUSTER_NAME}/auth/kubeconfig"
+if [[ ! -e "$KUBECONFIG" ]]; then
+  echo "KUBECONFIG does not exist."
+  exit 1
+fi
+export KUBECONFIG="$KUBECONFIG"
+kubectl config use-context admin
+
+TMP="$(mktemp -d)"
 trap_add_exit "rm -rf $TMP"
 
-OLM_REPO_DIR="${TMP}/olm"
+set -u
 DEPLOY_DIR="${TMP}/deploy"
 PKG_FILE="$(find "$REL_OP_PATH" -name "*.package.yaml" -print -quit)"
 PKG_NAME="$(yq r "$PKG_FILE" "packageName")"
@@ -62,56 +51,17 @@ CR_DIR="${DEPLOY_DIR}/crs"
 mkdir -p "$ABS_BUNDLE_PATH"
 mkdir -p "$CR_DIR"
 
-pushd "$TMP"
-# Install minikube.
-if ! command -v minikube > /dev/null; then
-  curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-  sudo -H install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
-fi
-# Install kubectl (fedora-specific method).
-if ! command -v kubectl > /dev/null; then
-  cat <<EOF > ${TMP}/kubernetes.repo
-[kubernetes]
-name=Kubernetes
-baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
-enabled=1
-gpgcheck=1
-repo_gpgcheck=1
-gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
-EOF
-  sudo -H mv "${TMP}/kubernetes.repo" /etc/yum.repos.d/
-  sudo -H dnf install -y kubectl
-fi
-# Clone the OLM repo, which is used to deploy the OLM below.
-git clone https://github.com/operator-framework/operator-lifecycle-manager.git "$OLM_REPO_DIR"
-# Install the SDK binary.
-if ! command -v operator-sdk > /dev/null; then
-  curl -L https://github.com/operator-framework/operator-sdk/releases/download/v0.5.0/operator-sdk-v0.5.0-x86_64-linux-gnu -o operator-sdk
-  chmod +x operator-sdk && sudo mv operator-sdk /usr/local/bin/
-fi
-# Install helm:
-if ! command -v helm > /dev/null; then
-  curl https://raw.githubusercontent.com/helm/helm/master/scripts/get | bash
-fi
-popd
-# Install the VM driver kvm2: https://github.com/kubernetes/minikube/blob/master/docs/drivers.md#kvm2-driver
-# Start and configure minikube using kvm2.
-minikube start --vm-driver=kvm2 --kubernetes-version="v1.11.0" --extra-config=apiserver.v=4
-trap_add_exit "minikube delete"
-eval $(minikube docker-env)
-kubectl config use-context minikube
-
-# Organize expected dir structure for the OLM.
-cp -a "$(dirname "$REL_OP_PATH")/$(basename "$REL_OP_PATH")/"* "$ABS_BUNDLE_PATH"
-pushd "${DEPLOY_DIR}"
+# Organize expected dir structure for the registry image build.
+cp -a "$(dirname "$REL_OP_PATH")/$(basename "$REL_OP_PATH")"/* "$ABS_BUNDLE_PATH"
+pushd "$DEPLOY_DIR"
 mv "${ABS_BUNDLE_PATH}/${PKG_NAME}.package.yaml" "${PKG_NAME}/"
 NAMESPACE="local"
 CATALOGSOURCE_FILE="${PKG_NAME}.catalogsource.yaml"
 SUBSCRIPTION_FILE="${PKG_NAME}.subscription.yaml"
 SC_PROXY_IMAGE="quay.io/operator-framework/scorecard-proxy:latest"
-OP_REGISTRY_IMAGE="quay.io/operatorframework/${PKG_NAME}:${OP_VER}-registry"
-SECRET_FILE="${TMP}/scorecard_secret.yaml"
-set -u
+# Make sure this registry is public before proceeding.
+OP_REGISTRY_IMAGE="quay.io/estroz/${PKG_NAME}:${OP_VER}-registry"
+SECRET_FILE="${DEPLOY_DIR}/scorecard.secret.yaml"
 CSV_FILE="$(find "$ABS_BUNDLE_PATH" -name "*.v${OP_VER}.clusterserviceversion.yaml" -print -quit)"
 CSV_NAME="$(yq r "$CSV_FILE" "metadata.name")"
 set +u
@@ -123,6 +73,7 @@ create_registry_dockerfile "Dockerfile" "$PKG_NAME"
 
 # Add scorecard proxy resources to the CSV.
 create_cr_files_from_metadata "$CSV_FILE" "$CR_DIR" "$NAMESPACE"
+create_permissions_files "$DEPLOY_DIR" "$CSV_FILE" "$PKG_NAME" "$NAMESPACE"
 create_kubeconfig_secret_file "$SECRET_FILE" "$NAMESPACE"
 insert_kubeconfig_volume "$CSV_FILE"
 insert_kubeconfig_secret_mount "$CSV_FILE"
@@ -132,18 +83,12 @@ insert_proxy_container "$CSV_FILE" "$SC_PROXY_IMAGE"
 docker build -t "$OP_REGISTRY_IMAGE" .
 docker push "$OP_REGISTRY_IMAGE"
 
-# Create a namespace if necessary and the scorecard kubeconfig secret.
+# Create a namespace if necessary.
 if ! kubectl get namespace "$NAMESPACE" > /dev/null 2>&1; then
   kubectl create namespace "$NAMESPACE"
 fi
-kubectl apply -f "$SECRET_FILE"
 
-# Deploy the OLM on minikube.
-pushd "$OLM_REPO_DIR"
-NO_MINIKUBE=true make run-local
-popd
-
-find "$DEPLOY_DIR" -maxdepth 1 -name "*.yaml" -exec kubectl apply -f {} \;
+apply_objects_incluster "$DEPLOY_DIR"
 
 # Wait for the deployment specified in the CSV to rollout successfully.
 DEP_NAME="$(yq r "$CSV_FILE" "spec.install.spec.deployments[0].name")"
@@ -164,7 +109,9 @@ kubectl describe pods --namespace="$NAMESPACE" >> "$LOG_FILE" 2>&1
 trap "cat $LOG_FILE" ERR
 
 # Run scorecard tests on the operator.
-for cr_file in $(find "$CR_DIR" -name "*_cr.yaml" -print); do
+# TODO: run against multiple CR's. Right now the scorecard only works with one
+# CR.
+for cr_file in $(find "$CR_DIR" -name "*.cr.yaml" -print -quit); do
   operator-sdk scorecard \
     --cr-manifest "$cr_file" \
     --crds-dir "$ABS_BUNDLE_PATH" \
@@ -173,6 +120,6 @@ for cr_file in $(find "$CR_DIR" -name "*_cr.yaml" -print); do
     --namespace "$NAMESPACE" \
     --init-timeout 60 \
     --proxy-image "$SC_PROXY_IMAGE" \
-    --proxy-pull-policy PullIfNotPresent \
+    --kubeconfig "$KUBECONFIG" \
     --verbose
 done
