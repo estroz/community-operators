@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+
+function wait_on_deployment() {
+  local dep="$1"
+  local namespace="$2"
+  local retries=10
+
+  while ! kubectl rollout status -w "deployment/${dep}" --namespace=${namespace}; do
+      sleep 6
+      retries=$((retries - 1))
+      if [[ $retries == 0 ]]; then
+        echo "failed to rollout deployloyment \"$dep\""
+        exit 1
+      fi
+      echo "retrying check rollout status for deployment \"$dep\"..."
+  done
+}
+
+function check_cluster_available() {
+  local cluster_name="${1:-"commops-persist"}"
+
+  if [[ -z "$KUBECONFIG" ]]; then
+    echo "KUBECONFIG not set"
+    return 1
+  fi
+
+  if ! kubectl cluster-info; then
+    echo "Cluster \"${cluster_name}.devcluster.openshift.com\" unreachable."
+    return 1
+  fi
+}
+
+function encrypt_kubeconfig() {
+  local config="$1"
+  local pf="$2"
+  gpg --batch --yes --cipher-algo AES256 --passphrase-file "$pf" --output "${config}.enc" --symmetric "$config"
+}
+
+function decrypt_kubeconfig() {
+  local enc_config="$1"
+  local pf="$2"
+  local dec_config="${enc_config%.*}"
+  if [[ "$dec_config" == "$enc_config" ]]; then
+    dec_config="${dec_config}.txt"
+  fi
+  gpg --batch --yes --passphrase-file "$pf" --output "$dec_config" --decrypt "$enc_config"
+}
+
+function kubeconfig_to_s3() {
+  local config="$1"
+  local bucket="$2"
+  aws s3 cp "$config" "s3://${bucket}/$(basename "$config")" --acl public-read --sse
+}
+
+function kubeconfig_from_s3() {
+  local config="$1"
+  local bucket="$2"
+  local region="${3:-"us-west-1"}"
+  curl -LO "https://s3-${region}.amazonaws.com/${bucket}/$(basename "$config")"
+}
+
+function gen_password() {
+  tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 48
+}

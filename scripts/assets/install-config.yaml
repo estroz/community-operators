@@ -1,0 +1,27 @@
+apiVersion: v1beta2
+baseDomain: devcluster.openshift.com
+machines:
+- name: master
+  platform: {}
+  replicas: 3
+- name: worker
+  platform: {}
+  replicas: 3
+metadata:
+  creationTimestamp: null
+  name: CLUSTER_NAME_REPLACEME
+networking:
+  clusterNetworks:
+  - cidr: 10.128.0.0/14
+    hostSubnetLength: 9
+  machineCIDR: 10.0.0.0/16
+  serviceCIDR: 172.30.0.0/16
+  type: OpenShiftSDN
+platform:
+  aws:
+    region: us-west-1
+    userTags:
+      cluster-name: CLUSTER_NAME_REPLACEME
+      cluster-type: openshift-4.0
+      target-repo: community-operators
+pullSecret: PULL_SECRET_REPLACEME

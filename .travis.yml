@@ -1,0 +1,13 @@
+dist: xenial
+sudo: required
+
+jobs:
+  include:
+  - name: Scorecard/OLM on Openshift 4.0
+    env:
+    - CLUSTER_NAME=commops-persist
+    - ASSETS_DIR="$(mktemp -d)/${CLUSTER_NAME}"
+    - KUBECONFIG="${ASSETS_DIR}/auth/kubeconfig"
+    before_install: source scripts/lib/check && check_cluster_available $CLUSTER_NAME
+    install: scripts/ci/install-deps
+    script: scripts/ci/test-pr
