@@ -1,0 +1,11 @@
+dist: xenial
+sudo: required
+
+env:
+- CHANGE_MINIKUBE_NONE_USER=true
+
+jobs:
+  include:
+  - name: Scorecard on minikube
+    install: scripts/ci/install-deps
+    script: eval $(scripts/ci/get-op-dir) && scripts/ci/test-pr
