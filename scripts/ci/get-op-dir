@@ -7,7 +7,9 @@ for op_type in ${OP_TYPES[@]}; do
   for file in $(git diff master --name-only 2>&1); do
     if echo "$file" | grep -q $op_type; then
       REL_OP_PATH="$(echo "$file" | awk -F'/' '{ print $1"/"$2 }')"
-      OP_VER="$(yq r "$(find "$REL_OP_PATH" -name "*.package.yaml" -print -quit)" "channels[0].currentCSV" | sed -E 's/.*v(.*)/\1/')"
+      # Get latest CSV version.
+      PKG_FILE="$(find "$REL_OP_PATH" -name "*.package.yaml" -print -quit)"
+      OP_VER="$(yq r --tojson "$PKG_FILE" "channels" | jq ".[] | .currentCSV" | sort -V | tail -1| sed -E 's/".*v(.*)"/\1/')"
       echo "export REL_OP_PATH=${REL_OP_PATH:?"REL_OP_PATH not found"}"
       echo "export OP_VER=${OP_VER:?"OP_VER not found"}"
       exit 0
