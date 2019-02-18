@@ -3,7 +3,9 @@
 set -e
 
 SCRIPTS_DIR="$(cd "$(dirname ${BASH_SOURCE[0]})/.." && pwd)"
-. "${SCRIPTS_DIR}"/lib/*
+for f in "${SCRIPTS_DIR}"/lib/*; do
+  . "$f"
+done
 
 # Download and install openshift-install binary.
 if ! command -v openshift-install > /dev/null; then
@@ -14,6 +16,10 @@ fi
 
 if [[ -z "$ASSETS_DIR" ]]; then
   echo "ASSETS_DIR not set."
+  exit 1
+fi
+if [[ -z "$CLUSTER_NAME" ]]; then
+  echo "CLUSTER_NAME not set."
   exit 1
 fi
 if [[ "$(basename "$ASSETS_DIR")" != "$CLUSTER_NAME" ]]; then
@@ -30,7 +36,7 @@ INSTALL_CONFIG_FILE="install-config.yaml"
 mkdir -p "$ASSETS_DIR"
 cp "${SCRIPTS_DIR}/assets/${INSTALL_CONFIG_FILE}" "${ASSETS_DIR}/"
 sed -i "s/PULL_SECRET_REPLACEME/'$PULL_SECRET'/g" "${ASSETS_DIR}/${INSTALL_CONFIG_FILE}"
-sed -i "s/CLUSTER_NAME_REPLACEME/${CLUSTER_NAME:-commops-persist}/g" "${ASSETS_DIR}/${INSTALL_CONFIG_FILE}"
+sed -i "s/CLUSTER_NAME_REPLACEME/${CLUSTER_NAME}/g" "${ASSETS_DIR}/${INSTALL_CONFIG_FILE}"
 openshift-install --dir="$ASSETS_DIR" create cluster
 
 check_cluster_available "$CLUSTER_NAME"
