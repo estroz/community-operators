@@ -111,7 +111,9 @@ kubectl describe pods --namespace="$NAMESPACE" >> "$LOG_FILE" 2>&1
 trap "cat $LOG_FILE" ERR
 
 # Run scorecard tests on the operator.
-for cr_file in $(find "$CR_DIR" -name "*_cr.yaml" -print); do
+# TODO: run against multiple CR's. Right now the scorecard only works with one
+# CR.
+for cr_file in $(find "$CR_DIR" -name "*_cr.yaml" -print -quit); do
   operator-sdk scorecard \
     --cr-manifest "$cr_file" \
     --crds-dir "$ABS_BUNDLE_PATH" \
