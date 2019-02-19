@@ -46,6 +46,26 @@ spec:
 EOF
 }
 
+# create_operator_group_file creates an operator group for the operator CSV.
+function create_operator_group_file() {
+  local op_group_file="$1"
+  local name="$2"
+  local service_account="$3"
+  local namespace="$4"
+
+  cat <<EOF > "$op_group_file"
+apiVersion: operators.coreos.com/v1alpha2
+kind: OperatorGroup
+metadata:
+  name: ${name}-og
+  namespace: $namespace
+spec:
+  serviceaccount: $service_account
+  targetNamespaces:
+  - $namespace
+EOF
+}
+
 # create_registry_dockerfile creates a registry Dockerfile.
 function create_registry_dockerfile() {
   local reg_dockerfile="$1"
@@ -64,7 +84,7 @@ EOF
 # from the "alm-examples" annontation, if present, into YAML manifest files.
 function create_cr_files_from_metadata() {
   local csv_file="$1"
-  local cr_dir="$2"
+  local cr_dir="${2%/*}"
   local namespace="$3"
 
   local alm_examples="$(yq r "$csv_file" "metadata.annotations.alm-examples")"
@@ -75,6 +95,38 @@ function create_cr_files_from_metadata() {
     tmp="$(mktemp -p "$cr_dir" --suffix="_cr.yaml")"
     echo "$obj" | yq w - "metadata.namespace" "$namespace" > "$tmp"
   done < <(echo "$alm_examples" | jq -c '.[]')
+}
+
+function create_permissions_files() {
+  local deploy_dir="${1%/*}"
+  local csv_file="$2"
+  local op_name="$3"
+  local namespace="$4"
+
+  declare -A service_accounts_set
+  local prefix rules_json sa_name
+
+  local permissions_json="$(yq r --tojson "$csv_file" "spec.install.spec.permissions")"
+  while read -r obj; do
+    prefix="${deploy_dir}/$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)"
+    rules_json="$(echo "$obj" | jq ".rules")"
+    sa_name="$(echo "$obj" | jq ".serviceAccountName" | yq r -)"
+    if [[ -z "${service_accounts_set[$sa_name]}" ]]; then
+      create_operator_group_file "${prefix}_og.yaml" "$op_name" "$sa_name" "$namespace"
+      service_accounts_set[$sa_name]="$sa_name"
+    fi
+  done < <(echo "$permissions_json" | jq -c ".[]")
+
+  local cluster_permissions_json="$(yq r --tojson "$csv_file" "spec.install.spec.clusterPermissions")"
+  while read -r obj; do
+    prefix="${deploy_dir}/$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)"
+    rules_json="$(echo "$obj" | jq ".rules")"
+    sa_name="$(echo "$obj" | jq ".serviceAccountName" | yq r -)"
+    if [[ -z "${service_accounts_set[$sa_name]}" ]]; then
+      create_operator_group_file "${prefix}_og.yaml" "$op_name" "$sa_name" "$namespace"
+      service_accounts_set[$sa_name]="$sa_name"
+    fi
+  done < <(echo "$cluster_permissions_json" | jq -c ".[]")
 }
 
 # insert_proxy_container inserts a proxy container into the operator pod
@@ -106,10 +158,11 @@ function insert_proxy_container() {
 function create_kubeconfig_secret_file() {
   local secret_file="$1"
   local namespace="$2"
-  # Expected proxy url.
-  local server="localhost:8889"
+  # Expected proxy url. The proxy is configured to listen on port 8889.
+  local server="$3"
+  server="$(echo "$server" | sed -E 's|(.+):.+|\1|'):8889"
   # Username for scorecard namespaced owner reference.
-  local username="eyJhcGlWZXJzaW9uIjoiIiwia2luZCI6IiIsIm5hbWUiOiJzY29yZWNhcmQiLCJ1aWQiOiIiLCJOYW1lc3BhY2UiOiJteXByb2plY3QifQ=="
+  local username="$(echo -n '{"apiVersion":"","kind":"","name":"scorecard","uid":"","Namespace":"'$namespace'"}' | base64 -w 0)"
   # Kubeconfig used to communicate with the proxy.
   local kubeconfig="apiVersion: v1
 kind: Config
@@ -130,7 +183,7 @@ users:
   user:
     username: $username
     password: unused"
-  local kubeconfig_base64="$(echo "$kubeconfig" | base64 -w 0)"
+  local kubeconfig_base64="$(echo -n "$kubeconfig" | base64 -w 0)"
 
   cat <<EOF > "$secret_file"
 apiVersion: v1

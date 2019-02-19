@@ -30,6 +30,13 @@ function check_cluster_available() {
   fi
 }
 
+function get_cluster_dns() {
+  local kubeconfig="$1"
+  local cluster_name="$2"
+  local server="$(yq r --tojson "$kubeconfig" "clusters" | jq ".[] | select(.name == \"$cluster_name\") | .cluster.server")"
+  echo "$server" | sed 's|"||g' | sed -E 's|.*://(.+)|\1|g'
+}
+
 function encrypt_kubeconfig() {
   local config="$1"
   local pf="$2"
