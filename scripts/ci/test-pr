@@ -43,10 +43,6 @@ if [[ -z "$CLUSTER_DNS" ]]; then
 fi
 export KUBECONFIG="$KUBECONFIG"
 kubectl config use-context admin
-oc config use-context admin
-if ! oc login -u admin -p $(cat "${ASSETS_DIR}/auth/kubeadmin-password"); then
-  echo "not logged in"
-fi
 
 TMP="$(mktemp -d)"
 trap_add_exit "rm -rf $TMP"
@@ -59,15 +55,16 @@ mkdir -p "$ABS_BUNDLE_PATH"
 mkdir -p "$CR_DIR"
 
 # Organize expected dir structure for the registry image build.
-cp -a "$(dirname "$REL_OP_PATH")/$(basename "$REL_OP_PATH")/"* "$ABS_BUNDLE_PATH"
-pushd "${DEPLOY_DIR}"
+cp -a "$(dirname "$REL_OP_PATH")/$(basename "$REL_OP_PATH")"/* "$ABS_BUNDLE_PATH"
+pushd "$DEPLOY_DIR"
 mv "${ABS_BUNDLE_PATH}/${PKG_NAME}.package.yaml" "${PKG_NAME}/"
 NAMESPACE="local"
 CATALOGSOURCE_FILE="${PKG_NAME}.catalogsource.yaml"
 SUBSCRIPTION_FILE="${PKG_NAME}.subscription.yaml"
 SC_PROXY_IMAGE="quay.io/operator-framework/scorecard-proxy:latest"
+# Make sure this registry is public before proceeding.
 OP_REGISTRY_IMAGE="quay.io/estroz/${PKG_NAME}:${OP_VER}-registry"
-SECRET_FILE="${TMP}/scorecard_secret.yaml"
+SECRET_FILE="${DEPLOY_DIR}/scorecard.secret.yaml"
 set -u
 CSV_FILE="$(find "$ABS_BUNDLE_PATH" -name "*.v${OP_VER}.clusterserviceversion.yaml" -print -quit)"
 CSV_NAME="$(yq r "$CSV_FILE" "metadata.name")"
@@ -90,13 +87,12 @@ insert_proxy_container "$CSV_FILE" "$SC_PROXY_IMAGE"
 docker build -t "$OP_REGISTRY_IMAGE" .
 docker push "$OP_REGISTRY_IMAGE"
 
-# Create a namespace if necessary and the scorecard kubeconfig secret.
+# Create a namespace if necessary.
 if ! kubectl get namespace "$NAMESPACE" > /dev/null 2>&1; then
   kubectl create namespace "$NAMESPACE"
 fi
-kubectl apply -f "$SECRET_FILE"
 
-find "$DEPLOY_DIR" -maxdepth 1 -name "*.yaml" -exec kubectl apply -f {} \;
+apply_objects_incluster "$DEPLOY_DIR"
 
 # Wait for the deployment specified in the CSV to rollout successfully.
 DEP_NAME="$(yq r "$CSV_FILE" "spec.install.spec.deployments[0].name")"
@@ -119,7 +115,7 @@ trap "cat $LOG_FILE" ERR
 # Run scorecard tests on the operator.
 # TODO: run against multiple CR's. Right now the scorecard only works with one
 # CR.
-for cr_file in $(find "$CR_DIR" -name "*_cr.yaml" -print -quit); do
+for cr_file in $(find "$CR_DIR" -name "*.cr.yaml" -print -quit); do
   operator-sdk scorecard \
     --cr-manifest "$cr_file" \
     --crds-dir "$ABS_BUNDLE_PATH" \
@@ -128,6 +124,6 @@ for cr_file in $(find "$CR_DIR" -name "*_cr.yaml" -print -quit); do
     --namespace "$NAMESPACE" \
     --init-timeout 60 \
     --proxy-image "$SC_PROXY_IMAGE" \
-    --proxy-pull-policy PullIfNotPresent \
+    --kubeconfig "$KUBECONFIG" \
     --verbose
 done

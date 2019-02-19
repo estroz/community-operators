@@ -84,7 +84,7 @@ EOF
 # from the "alm-examples" annontation, if present, into YAML manifest files.
 function create_cr_files_from_metadata() {
   local csv_file="$1"
-  local cr_dir="${2%/*}"
+  local cr_dir="$2"
   local namespace="$3"
 
   local alm_examples="$(yq r "$csv_file" "metadata.annotations.alm-examples")"
@@ -92,38 +92,36 @@ function create_cr_files_from_metadata() {
 
   local tmp
   while read -r obj; do
-    tmp="$(mktemp -p "$cr_dir" --suffix="_cr.yaml")"
+    tmp="$(mktemp -p "$cr_dir" "XXXXXXXXXX.cr.yaml")"
     echo "$obj" | yq w - "metadata.namespace" "$namespace" > "$tmp"
   done < <(echo "$alm_examples" | jq -c '.[]')
 }
 
 function create_permissions_files() {
-  local deploy_dir="${1%/*}"
+  local deploy_dir="$1"
   local csv_file="$2"
   local op_name="$3"
   local namespace="$4"
 
   declare -A service_accounts_set
-  local prefix rules_json sa_name
+  local prefix sa_name
 
   local permissions_json="$(yq r --tojson "$csv_file" "spec.install.spec.permissions")"
   while read -r obj; do
-    prefix="${deploy_dir}/$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)"
-    rules_json="$(echo "$obj" | jq ".rules")"
     sa_name="$(echo "$obj" | jq ".serviceAccountName" | yq r -)"
+    prefix="${deploy_dir}/$(echo "$sa_name" | tr -cd '[[:alnum:]]')"
     if [[ -z "${service_accounts_set[$sa_name]}" ]]; then
-      create_operator_group_file "${prefix}_og.yaml" "$op_name" "$sa_name" "$namespace"
+      create_operator_group_file "${prefix}.og.yaml" "$op_name" "$sa_name" "$namespace"
       service_accounts_set[$sa_name]="$sa_name"
     fi
   done < <(echo "$permissions_json" | jq -c ".[]")
 
   local cluster_permissions_json="$(yq r --tojson "$csv_file" "spec.install.spec.clusterPermissions")"
   while read -r obj; do
-    prefix="${deploy_dir}/$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)"
-    rules_json="$(echo "$obj" | jq ".rules")"
     sa_name="$(echo "$obj" | jq ".serviceAccountName" | yq r -)"
+    prefix="${deploy_dir}/$(echo "$sa_name" | tr -cd '[[:alnum:]]')"
     if [[ -z "${service_accounts_set[$sa_name]}" ]]; then
-      create_operator_group_file "${prefix}_og.yaml" "$op_name" "$sa_name" "$namespace"
+      create_operator_group_file "${prefix}.og.yaml" "$op_name" "$sa_name" "$namespace"
       service_accounts_set[$sa_name]="$sa_name"
     fi
   done < <(echo "$cluster_permissions_json" | jq -c ".[]")
@@ -144,7 +142,8 @@ function insert_proxy_container() {
     valueFrom: {fieldRef: {apiVersion: "v1", fieldPath: "metadata.namespace"}}
   }],
   image: "'"$proxy_image"'",
-  imagePullPolicy: "IfNotPresent",
+  imagePullPolicy: "Always",
+  ports: [{name: "proxy", containerPort: 8889}],
   resources: {}}'
   local containers_yaml="$(jq ". + {containers: (.containers + [$container])}" \
     <<< "$containers_json" | yq r -)"
@@ -159,8 +158,7 @@ function create_kubeconfig_secret_file() {
   local secret_file="$1"
   local namespace="$2"
   # Expected proxy url. The proxy is configured to listen on port 8889.
-  local server="$3"
-  server="$(echo "$server" | sed -E 's|(.+):.+|\1|'):8889"
+  local server="$(echo "$3" | sed -E 's|(.+):.+|\1|'):8889"
   # Username for scorecard namespaced owner reference.
   local username="$(echo -n '{"apiVersion":"","kind":"","name":"scorecard","uid":"","Namespace":"'$namespace'"}' | base64 -w 0)"
   # Kubeconfig used to communicate with the proxy.

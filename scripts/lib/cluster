@@ -37,6 +37,40 @@ function get_cluster_dns() {
   echo "$server" | sed 's|"||g' | sed -E 's|.*://(.+)|\1|g'
 }
 
+# apply_objects_incluster creates in-cluster objects from manifests in
+# $1. Objects are created in a particular order so those a CSV needs are
+# present at install time:
+# Secrets -> OperatorGroups -> all other Kinds
+function apply_objects_incluster() {
+  local deploy_dir="$1"
+
+  declare -a secrets op_groups others
+  local kind
+  for f in $(find "$deploy_dir" -maxdepth 1 -name "*.yaml"); do
+    kind="$(yq r "$f" "kind")"
+    if [[ "$kind" == "Secret" ]]; then
+      secrets+=("$f")
+    elif [[ "$kind" == "OperatorGroup" ]]; then
+      op_groups+=("$f")
+    else
+      others+=("$f")
+    fi
+  done
+  for f in ${secrets[@]} ${op_groups[@]} ${others[@]}; do
+    kubectl apply -f "$f"
+  done
+}
+
+# delete_all_objects_incluster deletes all ClusterServiceVersions,
+# OperatorGroups, Subscriptions, and CatalogSources in namespace $1.
+function delete_all_objects_incluster() {
+  local namespace="$1"
+
+  for t in "csvs" "operatorgroups" "subscriptions" "catalogsources"; do
+    kubectl delete "$t" --namespace="$namespace" --all
+  done
+}
+
 function encrypt_kubeconfig() {
   local config="$1"
   local pf="$2"

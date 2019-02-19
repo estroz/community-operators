@@ -30,13 +30,13 @@ if [[ -z "$PULL_SECRET" ]]; then
   echo "PULL_SECRET not set."
   exit 1
 fi
-INSTALL_CONFIG_FILE="install-config.yaml"
+INSTALL_CONFIG_FILE="${ASSETS_DIR}/install-config.yaml"
 
 # Create openshift cluster using a predefined install config.
 mkdir -p "$ASSETS_DIR"
-cp "${SCRIPTS_DIR}/assets/${INSTALL_CONFIG_FILE}" "${ASSETS_DIR}/"
-sed -i "s/PULL_SECRET_REPLACEME/'$PULL_SECRET'/g" "${ASSETS_DIR}/${INSTALL_CONFIG_FILE}"
-sed -i "s/CLUSTER_NAME_REPLACEME/${CLUSTER_NAME}/g" "${ASSETS_DIR}/${INSTALL_CONFIG_FILE}"
+cp "${SCRIPTS_DIR}/assets/$(basename "$INSTALL_CONFIG_FILE")" "$INSTALL_CONFIG_FILE"
+sed -i "s/PULL_SECRET_REPLACEME/'$PULL_SECRET'/g" "$INSTALL_CONFIG_FILE"
+sed -i "s/CLUSTER_NAME_REPLACEME/${CLUSTER_NAME}/g" "$INSTALL_CONFIG_FILE"
 openshift-install --dir="$ASSETS_DIR" create cluster
 
 check_cluster_available "$CLUSTER_NAME"
