@@ -30,13 +30,6 @@ function check_cluster_available() {
   fi
 }
 
-function get_cluster_dns() {
-  local kubeconfig="$1"
-  local cluster_name="$2"
-  local server="$(yq r --tojson "$kubeconfig" "clusters" | jq ".[] | select(.name == \"$cluster_name\") | .cluster.server")"
-  echo "$server" | sed 's|"||g' | sed -E 's|.*://(.+)|\1|g' | sed -E 's|(.+):.*|\1|'
-}
-
 # apply_objects_incluster creates in-cluster objects from manifests in
 # $1. Objects are created in a particular order so those a CSV needs are
 # present at install time:
@@ -59,47 +52,4 @@ function apply_objects_incluster() {
   for f in ${secrets[@]} ${op_groups[@]} ${others[@]}; do
     kubectl apply -f "$f"
   done
-}
-
-# delete_all_objects_incluster deletes all ClusterServiceVersions,
-# OperatorGroups, Subscriptions, and CatalogSources in namespace $1.
-function delete_all_objects_incluster() {
-  local namespace="$1"
-
-  for t in "csvs" "operatorgroups" "subscriptions" "catalogsources"; do
-    kubectl delete "$t" --namespace="$namespace" --all
-  done
-}
-
-function encrypt_kubeconfig() {
-  local config="$1"
-  local pf="$2"
-  gpg --batch --yes --cipher-algo AES256 --passphrase-file "$pf" --output "${config}.enc" --symmetric "$config"
-}
-
-function decrypt_kubeconfig() {
-  local enc_config="$1"
-  local pf="$2"
-  local dec_config="${enc_config%.*}"
-  if [[ "$dec_config" == "$enc_config" ]]; then
-    dec_config="${dec_config}.txt"
-  fi
-  gpg --batch --yes --passphrase-file "$pf" --output "$dec_config" --decrypt "$enc_config"
-}
-
-function kubeconfig_to_s3() {
-  local config="$1"
-  local bucket="$2"
-  aws s3 cp "$config" "s3://${bucket}/$(basename "$config")" --acl public-read --sse
-}
-
-function kubeconfig_from_s3() {
-  local config="$1"
-  local bucket="$2"
-  local region="${3:-"us-west-1"}"
-  curl -Lo "$config" "https://s3-${region}.amazonaws.com/${bucket}/$(basename "$config")"
-}
-
-function gen_password() {
-  tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 48
 }
