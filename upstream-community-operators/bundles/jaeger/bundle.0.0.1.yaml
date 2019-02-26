@@ -182,7 +182,7 @@ data:
                         ports:
                         - containerPort: 60000
                           name: metrics
-                        args: ["start", "--platform=openshift"]
+                        args: ["start"]
                         imagePullPolicy: Always
                         env:
                           - name: WATCH_NAMESPACE

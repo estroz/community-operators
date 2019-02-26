@@ -5,6 +5,8 @@ kind: ClusterServiceVersion
 metadata:
   name: prometheusoperator.0.14.0
   namespace: placeholder
+  annotations:
+    capabilities: Full Lifecycle
 spec:
   displayName: Prometheus
   description: |

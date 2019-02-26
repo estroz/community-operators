@@ -5,8 +5,10 @@ kind: ClusterServiceVersion
 metadata:
   name: metering-operator.v0.13.0
   annotations:
+    capabilities: Seamless Upgrades
     tectonic-visibility: openshift-feature
     categories: "OpenShift Optional, Monitoring"
+    description: Metering can generate reports based on historical usage data from a cluster, providing accountability for how resources have been used.
   namespace: placeholder
   labels:
     alm-catalog: openshift-feature
