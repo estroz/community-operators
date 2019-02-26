@@ -4,7 +4,7 @@ set -e
 
 # Runs ci/test-operator on each operator with changes in a PR.
 DIR="$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)"
-OP_TYPES=( "community-operators" )
+OP_TYPES=( "upstream-community-operators" )
 for op_type in ${OP_TYPES[@]}; do
   for file in $(git diff master --name-only 2>&1); do
     if echo "$file" | grep "$op_type" | grep -qv "bundles"; then
