@@ -223,7 +223,7 @@ spec:
     - name: automationbrokers.osb.openshift.io
       version: v1alpha1
       kind: AutomationBroker
-      displayName: Automation Broker
+      displayName: Automation Broke
       description: An Open Service Broker supporting management of application bundles
     - name: bundles.automationbroker.io
       version: v1alpha1
