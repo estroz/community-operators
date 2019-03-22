@@ -8,7 +8,7 @@ if [ -f /.dockerenv ]; then
   SUDO=
 fi
 
-# DISTRO_TYPE is either "upstream" or "openshift"
+# DISTRO_TYPE is either "upstream" or "openshft"
 DISTRO_TYPE_UPSTREAM="upstream"
 DISTRO_TYPE_OPENSHIFT="openshift"
 DISTRO_TYPE="${1:-$DISTRO_TYPE_UPSTREAM}"
